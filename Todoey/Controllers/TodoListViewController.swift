@@ -7,24 +7,29 @@
 //
 
 import UIKit
+import CoreData
 
 class TodoListViewController: UITableViewController {
     
     var itemArray = [Item]()
     
-    let dataFilePath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?.appendingPathComponent("Items.plist")
+    var selectedCategory : Category? {
+        didSet{
+            loadItems()
+        }
+    }
+    
+    
+    let context = (UIApplication.shared.delegate as! AppDelegate).persistentContainer.viewContext
     
 
     override func viewDidLoad() {
         super.viewDidLoad()
         
-        
-        
-//        print(dataFilePath)
-        
+        //        print(dataFilePath)
+         print(FileManager.default.urls(for: .documentDirectory, in: .userDomainMask))
 
         
-        loadItems()
         
         
         // Do any additional setup after loading the view, typically from a nib.
@@ -59,6 +64,11 @@ class TodoListViewController: UITableViewController {
     
     override func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
         
+//        IF WE WANTED to delete items instead of checking/unchecking them
+//        context.delete(itemArray[indexPath.row])
+//        itemArray.remove(at: indexPath.row)
+        
+        
 //        if itemArray[indexPath.row].done == false {
 //            itemArray[indexPath.row].done = true
 //        } else {
@@ -88,8 +98,11 @@ class TodoListViewController: UITableViewController {
             
            // print("Success!")
             
-            let newItem = Item()
+            
+            let newItem = Item(context: self.context)
             newItem.title = textField.text!
+            newItem.done = false
+            newItem.parentCategory = self.selectedCategory
             
             self.itemArray.append(newItem)
             
@@ -118,36 +131,79 @@ class TodoListViewController: UITableViewController {
     
     func saveItems() {
         
-        let encoder = PropertyListEncoder()
         
         do {
             
-            let data = try encoder.encode(itemArray)
-            try data.write(to: dataFilePath!)
+          try context.save()
             
         } catch {
-            print("Error encoding item array, \(error)")
+          print("Error saving context \(error)")
         }
         
         self.tableView.reloadData()
         
     }
     
-    func loadItems() {
+    
+    //"with" is the external parameter name, "request" is the internal parameter name
+    // = Item.fetchRequest() is the default value if no value is passed into the fuction when it's being called
+    func loadItems(with request: NSFetchRequest<Item> = Item.fetchRequest(), predicate: NSPredicate? = nil) {
+
+        let categoryPredicate = NSPredicate(format: "parentCategory.name MATCHES %@", selectedCategory!.name!)
+      
+        if predicate != nil {
         
-        if let data = try? Data(contentsOf: dataFilePath!) {
+            request.predicate = NSCompoundPredicate(type: .and, subpredicates: [predicate!, categoryPredicate])
             
-            let decoder = PropertyListDecoder()
-            
-            do {
-            itemArray = try decoder.decode([Item].self, from: data)
-            } catch {
-                print("Error decoding item array, \(error)")
-            }
+        } else {
+            request.predicate = categoryPredicate
         }
         
+        
+        do {
+            itemArray = try context.fetch(request)
+        } catch {
+            print("Error Fetching data from context \(error)")
+        }
+        
+        tableView.reloadData()
+
     }
+    
+    
     
     
 }
 
+//MARK: - Search bar methods
+
+extension TodoListViewController: UISearchBarDelegate {
+    
+    func searchBarSearchButtonClicked(_ searchBar: UISearchBar) {
+        
+        let request: NSFetchRequest<Item> = Item.fetchRequest()
+        
+        
+        // The [cd] below is a way to make the query NOT case sensitive, as in lower vs upper case letters, and NOT diacritic (accents) sensitive
+        let predicate = NSPredicate(format: "title CONTAINS[cd] %@", searchBar.text!)
+        
+        request.sortDescriptors = [NSSortDescriptor(key: "title", ascending: true)]
+        
+        loadItems(with: request, predicate: predicate)
+        
+    }
+    
+    func searchBar(_ searchBar: UISearchBar, textDidChange searchText: String) {
+        
+        if searchBar.text?.count == 0 {
+            loadItems()
+            
+            DispatchQueue.main.async {
+                searchBar.resignFirstResponder()
+            }
+            
+        }
+        
+    }
+    
+}
